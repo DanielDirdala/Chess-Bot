@@ -17,8 +17,9 @@ PIECES = [
     chess.ROOK, chess.QUEEN, chess.KING
 ]
 
+# Solid symbols are used for both sides, with color/outline providing contrast.
 PIECE_SYMBOLS = {
-    "P": "♙", "N": "♘", "B": "♗", "R": "♖", "Q": "♕", "K": "♔",
+    "P": "♟", "N": "♞", "B": "♝", "R": "♜", "Q": "♛", "K": "♚",
     "p": "♟", "n": "♞", "b": "♝", "r": "♜", "q": "♛", "k": "♚",
 }
 
@@ -131,28 +132,47 @@ def train_model():
 class ChessGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Learning Chess Bot - Resizable")
-        self.root.geometry("720x780")
-        self.root.minsize(360, 420)
+        self.root.title("Learning Chess Bot")
+        self.root.geometry("760x840")
+        self.root.minsize(420, 500)
+        self.root.configure(bg="#302e2b")
 
         self.board = chess.Board()
         self.model = get_model()
         self.positions = []
         self.selected_square = None
         self.human_is_white = True
+        self.last_move = None
 
-        self.status = tk.Label(root, text="Choose your side", font=("Arial", 14))
-        self.status.pack(pady=8)
+        self.status = tk.Label(
+            root,
+            text="Choose your side",
+            font=("Arial", 15, "bold"),
+            bg="#302e2b",
+            fg="#eeeeee",
+        )
+        self.status.pack(pady=10)
 
-        side_frame = tk.Frame(root)
+        side_frame = tk.Frame(root, bg="#302e2b")
         side_frame.pack()
 
-        tk.Button(side_frame, text="Play as White", command=lambda: self.start_game(True)).pack(side=tk.LEFT, padx=5)
-        tk.Button(side_frame, text="Play as Black", command=lambda: self.start_game(False)).pack(side=tk.LEFT, padx=5)
-        tk.Button(side_frame, text="New Game", command=self.new_game).pack(side=tk.LEFT, padx=5)
+        button_style = {
+            "font": ("Arial", 11, "bold"),
+            "bg": "#81b64c",
+            "fg": "white",
+            "activebackground": "#95c55a",
+            "activeforeground": "white",
+            "relief": tk.FLAT,
+            "padx": 12,
+            "pady": 7,
+        }
 
-        self.canvas = tk.Canvas(root, bg="white", highlightthickness=0)
-        self.canvas.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        tk.Button(side_frame, text="Play as White", command=lambda: self.start_game(True), **button_style).pack(side=tk.LEFT, padx=5)
+        tk.Button(side_frame, text="Play as Black", command=lambda: self.start_game(False), **button_style).pack(side=tk.LEFT, padx=5)
+        tk.Button(side_frame, text="New Game", command=self.new_game, **button_style).pack(side=tk.LEFT, padx=5)
+
+        self.canvas = tk.Canvas(root, bg="#302e2b", highlightthickness=0)
+        self.canvas.pack(fill=tk.BOTH, expand=True, padx=18, pady=18)
 
         self.canvas.bind("<Configure>", lambda event: self.draw_board())
         self.canvas.bind("<Button-1>", self.on_canvas_click)
@@ -164,12 +184,13 @@ class ChessGUI:
         self.board = chess.Board()
         self.positions = []
         self.selected_square = None
+        self.last_move = None
 
         if self.human_is_white:
             self.status.config(text="Your turn. Click a piece, then click where to move.")
         else:
             self.status.config(text="Bot thinking...")
-            self.root.after(300, self.bot_move)
+            self.root.after(350, self.bot_move)
 
         self.draw_board()
 
@@ -207,18 +228,81 @@ class ChessGUI:
 
         return row, col
 
+    def legal_target_squares(self):
+        if self.selected_square is None:
+            return set()
+        return {move.to_square for move in self.board.legal_moves if move.from_square == self.selected_square}
+
+    def draw_piece(self, x, y, symbol, is_white, font_size):
+        # Shadow/outline pass for readability.
+        outline = "#2a2a2a" if is_white else "#e6e6e6"
+        fill = "#fffdf5" if is_white else "#1f1f1f"
+
+        offsets = [(-2, 0), (2, 0), (0, -2), (0, 2), (-1, -1), (1, 1)]
+        for dx, dy in offsets:
+            self.canvas.create_text(
+                x + dx,
+                y + dy,
+                text=symbol,
+                font=("Arial", font_size, "bold"),
+                fill=outline,
+            )
+
+        self.canvas.create_text(
+            x,
+            y,
+            text=symbol,
+            font=("Arial", font_size, "bold"),
+            fill=fill,
+        )
+
+    def draw_coordinates(self, row, col, x1, y1, x2, y2, color):
+        square_size = x2 - x1
+        font_size = max(8, int(square_size * 0.16))
+
+        if col == 0:
+            rank = str(8 - row) if self.human_is_white else str(row + 1)
+            self.canvas.create_text(
+                x1 + square_size * 0.12,
+                y1 + square_size * 0.16,
+                text=rank,
+                font=("Arial", font_size, "bold"),
+                fill=color,
+            )
+
+        if row == 7:
+            file_index = col if self.human_is_white else 7 - col
+            file_letter = "abcdefgh"[file_index]
+            self.canvas.create_text(
+                x2 - square_size * 0.13,
+                y2 - square_size * 0.14,
+                text=file_letter,
+                font=("Arial", font_size, "bold"),
+                fill=color,
+            )
+
     def draw_board(self):
         self.canvas.delete("all")
         x0, y0, size, square_size = self.board_geometry()
 
-        light = "#f0d9b5"
-        dark = "#b58863"
+        # Chess.com-inspired board colors.
+        light = "#eeeed2"
+        dark = "#769656"
         selected = "#f6f669"
+        last_move_color = "#baca44"
+        legal_dot = "#4b5d32"
+        capture_ring = "#4b5d32"
+
+        legal_targets = self.legal_target_squares()
 
         for row in range(8):
             for col in range(8):
                 square = self.square_from_row_col(row, col)
-                color = light if (row + col) % 2 == 0 else dark
+                base_color = light if (row + col) % 2 == 0 else dark
+                color = base_color
+
+                if self.last_move and square in [self.last_move.from_square, self.last_move.to_square]:
+                    color = last_move_color
                 if self.selected_square == square:
                     color = selected
 
@@ -228,16 +312,42 @@ class ChessGUI:
                 y2 = y1 + square_size
 
                 self.canvas.create_rectangle(x1, y1, x2, y2, fill=color, outline=color)
+                self.draw_coordinates(row, col, x1, y1, x2, y2, dark if base_color == light else light)
+
+                if square in legal_targets:
+                    target_piece = self.board.piece_at(square)
+                    if target_piece:
+                        pad = square_size * 0.09
+                        self.canvas.create_oval(
+                            x1 + pad,
+                            y1 + pad,
+                            x2 - pad,
+                            y2 - pad,
+                            outline=capture_ring,
+                            width=max(2, int(square_size * 0.05)),
+                        )
+                    else:
+                        dot_radius = square_size * 0.13
+                        self.canvas.create_oval(
+                            x1 + square_size / 2 - dot_radius,
+                            y1 + square_size / 2 - dot_radius,
+                            x1 + square_size / 2 + dot_radius,
+                            y1 + square_size / 2 + dot_radius,
+                            fill=legal_dot,
+                            outline="",
+                            stipple="gray50",
+                        )
 
                 piece = self.board.piece_at(square)
                 if piece:
                     symbol = PIECE_SYMBOLS[piece.symbol()]
-                    font_size = max(14, int(square_size * 0.62))
-                    self.canvas.create_text(
+                    font_size = max(22, int(square_size * 0.70))
+                    self.draw_piece(
                         x1 + square_size / 2,
                         y1 + square_size / 2,
-                        text=symbol,
-                        font=("Arial", font_size),
+                        symbol,
+                        piece.color == chess.WHITE,
+                        font_size,
                     )
 
     def is_human_turn(self):
@@ -267,8 +377,15 @@ class ChessGUI:
                 self.draw_board()
             return
 
+        # Allow changing the selected piece by clicking another friendly piece.
+        if piece and piece.color == self.board.turn and square != self.selected_square:
+            self.selected_square = square
+            self.draw_board()
+            return
+
         move = chess.Move(self.selected_square, square)
 
+        # Auto-promote pawns to queens.
         moving_piece = self.board.piece_at(self.selected_square)
         if moving_piece and moving_piece.piece_type == chess.PAWN:
             target_rank = chess.square_rank(square)
@@ -278,13 +395,14 @@ class ChessGUI:
         if move in self.board.legal_moves:
             self.positions.append(self.board.fen())
             self.board.push(move)
+            self.last_move = move
             self.selected_square = None
             self.draw_board()
             self.check_game_over()
 
             if not self.board.is_game_over():
                 self.status.config(text="Bot thinking...")
-                self.root.after(300, self.bot_move)
+                self.root.after(350, self.bot_move)
         else:
             self.selected_square = None
             self.draw_board()
@@ -297,6 +415,7 @@ class ChessGUI:
         move = choose_bot_move(self.board, self.model)
         san = self.board.san(move)
         self.board.push(move)
+        self.last_move = move
 
         self.status.config(text=f"Bot played {san}. Your turn.")
         self.draw_board()
