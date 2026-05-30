@@ -1,0 +1,5 @@
+python-chess
+scikit-learn
+joblib
+numpy
+pyinstaller
